@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>双面 PNG 制作器</title>
+  <style>
+    :root { color-scheme: light; font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #f1f4f3; color: #202b2c; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    .app { max-width: 1120px; margin: 0 auto; padding: 34px 28px 64px; }
+    header { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; padding-bottom: 26px; border-bottom: 1px solid #cbd3d0; }
+    .brand { display: flex; align-items: center; gap: 14px; }
+    .mark { position: relative; width: 38px; height: 38px; flex: none; }
+    .mark::before, .mark::after { content: ""; position: absolute; width: 23px; height: 28px; border: 2px solid #202b2c; background: #f1f4f3; }
+    .mark::before { left: 2px; top: 2px; transform: rotate(-9deg); }
+    .mark::after { left: 11px; top: 7px; border-color: #d95743; transform: rotate(8deg); }
+    h1 { margin: 0; font-size: 28px; font-weight: 750; line-height: 1.2; }
+    .header-note { margin: 0 0 2px; color: #697779; font-size: 13px; }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; margin-top: 27px; }
+    .panel { min-width: 0; background: #fff; border: 1px solid #d5ddda; border-radius: 7px; overflow: hidden; }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 58px; padding: 0 19px; border-bottom: 1px solid #e0e6e3; }
+    .panel-title { display: flex; align-items: baseline; gap: 11px; min-width: 0; }
+    .number { color: #d95743; font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    h2 { margin: 0; font-size: 16px; font-weight: 700; white-space: nowrap; }
+    .select { flex: none; color: #0a7568; border: 0; background: none; padding: 8px 0 8px 10px; font-size: 13px; font-weight: 700; }
+    .select:hover, .select:focus-visible { text-decoration: underline; }
+    .drop { position: relative; display: grid; place-items: center; height: 340px; margin: 14px; border: 1px dashed #c5cfcb; border-radius: 4px; background: #f7f9f8; overflow: hidden; cursor: pointer; transition: border-color .15s, background .15s; }
+    .drop:hover, .drop.dragging, .drop:focus-visible { border-color: #0a897a; background: #eff8f5; outline: none; }
+    .drop img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; }
+    .drop .empty { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; color: #536365; pointer-events: none; }
+    .empty strong { color: #263233; font-size: 15px; }
+    .empty span { font-size: 12px; }
+    .empty-glyph { position: relative; width: 42px; height: 42px; margin-bottom: 7px; border: 1.5px solid #82918c; border-radius: 3px; }
+    .empty-glyph::before { content: ""; position: absolute; left: 8px; top: 8px; width: 8px; height: 8px; border-radius: 50%; background: #82918c; }
+    .empty-glyph::after { content: ""; position: absolute; left: 9px; bottom: 8px; width: 22px; height: 15px; border-left: 1.5px solid #82918c; border-bottom: 1.5px solid #82918c; transform: skew(-25deg); }
+    .panel-meta { display: flex; justify-content: space-between; gap: 12px; min-height: 42px; padding: 0 17px 12px; color: #61716e; font-size: 12px; }
+    .filename { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dimensions { flex: none; font-variant-numeric: tabular-nums; }
+    .settings { display: flex; flex-wrap: wrap; align-items: center; gap: 18px 32px; padding: 27px 0 25px; border-bottom: 1px solid #cbd3d0; }
+    .setting { display: flex; align-items: center; gap: 12px; }
+    .setting-label { color: #566663; font-size: 13px; font-weight: 700; white-space: nowrap; }
+    .segmented { display: inline-flex; padding: 3px; border: 1px solid #cbd5d1; border-radius: 5px; background: #e8eeeb; }
+    .segmented button { min-width: 88px; padding: 8px 11px; border: 0; border-radius: 3px; background: transparent; color: #586965; font-size: 13px; }
+    .segmented button[aria-pressed="true"] { color: #19312f; background: white; box-shadow: 0 1px 4px #24383020; font-weight: 700; }
+    .color-input { width: 35px; height: 35px; padding: 3px; border: 1px solid #bfcac5; border-radius: 4px; background: white; cursor: pointer; }
+    .color-value { color: #667571; font-size: 12px; font-variant-numeric: tabular-nums; }
+    .output { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-top: 24px; }
+    .output-info { min-width: 0; }
+    .output-info strong { display: block; margin-bottom: 4px; font-size: 15px; }
+    .output-info span { display: block; color: #6b7976; font-size: 12px; line-height: 1.6; }
+    .action { flex: none; min-width: 184px; min-height: 46px; padding: 11px 18px; border: 1px solid #1d2929; border-radius: 4px; background: #1d2929; color: white; font-size: 14px; font-weight: 700; transition: background .15s, transform .15s; }
+    .action:hover:not(:disabled) { background: #0a7568; border-color: #0a7568; transform: translateY(-1px); }
+    .action:disabled { cursor: not-allowed; opacity: .45; }
+    .status { margin-top: 15px; min-height: 21px; color: #0a7568; font-size: 13px; }
+    .status.error { color: #c24335; }
+    input[type="file"] { display: none; }
+    @media (max-width: 700px) {
+      .app { padding: 20px 16px 36px; }
+      header { align-items: flex-start; }
+      h1 { font-size: 23px; }
+      .header-note { display: none; }
+      .workspace { grid-template-columns: 1fr; gap: 12px; margin-top: 18px; }
+      .drop { height: min(56vw, 310px); min-height: 210px; }
+      .settings { gap: 16px; padding: 20px 0; }
+      .output { align-items: stretch; flex-direction: column; gap: 15px; }
+      .action { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <div class="brand"><span class="mark" aria-hidden="true"></span><h1>双面 PNG 制作器</h1></div>
+      <p class="header-note">本地处理 · APNG</p>
+    </header>
+
+    <div class="workspace">
+      <section class="panel" aria-labelledby="cover-title">
+        <div class="panel-head"><div class="panel-title"><span class="number">01</span><h2 id="cover-title">静态封面</h2></div><button class="select" type="button" data-pick="cover">选择图片</button></div>
+        <div class="drop" id="cover-drop" role="button" tabindex="0" aria-label="选择静态封面图片">
+          <div class="empty"><i class="empty-glyph" aria-hidden="true"></i><strong>选择或拖入图片</strong><span>普通预览中显示</span></div>
+        </div>
+        <div class="panel-meta"><span class="filename" id="cover-name">尚未选择</span><span class="dimensions" id="cover-size"></span></div>
+      </section>
+      <section class="panel" aria-labelledby="reveal-title">
+        <div class="panel-head"><div class="panel-title"><span class="number">02</span><h2 id="reveal-title">打开后画面</h2></div><button class="select" type="button" data-pick="reveal">选择图片</button></div>
+        <div class="drop" id="reveal-drop" role="button" tabindex="0" aria-label="选择打开后显示的图片">
+          <div class="empty"><i class="empty-glyph" aria-hidden="true"></i><strong>选择或拖入图片</strong><span>APNG 查看器中显示</span></div>
+        </div>
+        <div class="panel-meta"><span class="filename" id="reveal-name">尚未选择</span><span class="dimensions" id="reveal-size"></span></div>
+      </section>
+    </div>
+
+    <div class="settings">
+      <div class="setting"><span class="setting-label">画面适配</span><div class="segmented" role="group" aria-label="打开后画面适配"><button type="button" data-fit="contain" aria-pressed="true">完整显示</button><button type="button" data-fit="cover" aria-pressed="false">填满裁切</button></div></div>
+      <div class="setting"><label class="setting-label" for="background">留白颜色</label><input class="color-input" id="background" type="color" value="#ffffff"><span class="color-value" id="color-value">#FFFFFF</span></div>
+    </div>
+
+    <div class="output">
+      <div class="output-info"><strong id="output-size">等待选择图片</strong><span id="output-note">输出尺寸采用静态封面的尺寸</span></div>
+      <button class="action" id="generate" type="button" disabled>生成并下载 PNG</button>
+    </div>
+    <div class="status" id="status" role="status" aria-live="polite"></div>
+    <input id="cover-input" type="file" accept="image/*">
+    <input id="reveal-input" type="file" accept="image/*">
+  </main>
+  <script>
+    const state = { cover: null, reveal: null, fit: 'contain', background: '#ffffff', busy: false };
+    const $ = id => document.getElementById(id);
+    const encoder = new TextEncoder();
+    const signature = Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10);
+    const crcTable = Uint32Array.from({ length: 256 }, (_, n) => {
+      let c = n;
+      for (let i = 0; i < 8; i++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      return c >>> 0;
+    });
+
+    function setStatus(message, error = false) {
+      $('status').textContent = message;
+      $('status').classList.toggle('error', error);
+    }
+
+    function updateUI() {
+      const cover = state.cover;
+      $('generate').disabled = !cover || !state.reveal || state.busy;
+      $('output-size').textContent = cover ? `${cover.width} × ${cover.height} 像素` : '等待选择图片';
+      $('reveal-drop').style.backgroundColor = state.reveal && state.fit === 'contain' ? state.background : '';
+      $('background').disabled = state.fit !== 'contain';
+      renderRevealPreview();
+    }
+
+    function drawFitted(context, image, width, height, fit) {
+      const scale = fit === 'cover' ? Math.max(width / image.width, height / image.height) : Math.min(width / image.width, height / image.height);
+      const drawWidth = image.width * scale;
+      const drawHeight = image.height * scale;
+      context.drawImage(image.bitmap, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+    }
+
+    function renderRevealPreview() {
+      const preview = $('reveal-drop').querySelector('img');
+      if (!preview || !state.reveal) return;
+      if (!state.cover) { preview.src = state.reveal.url; return; }
+      const scale = Math.min(500 / state.cover.width, 500 / state.cover.height, 1);
+      const width = Math.max(1, Math.round(state.cover.width * scale));
+      const height = Math.max(1, Math.round(state.cover.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (state.fit === 'contain') {
+        context.fillStyle = state.background;
+        context.fillRect(0, 0, width, height);
+      }
+      drawFitted(context, state.reveal, width, height, state.fit);
+      preview.src = canvas.toDataURL('image/png');
+      preview.style.objectFit = 'contain';
+    }
+
+    async function choose(file, kind) {
+      if (!file) return;
+      if (!file.type.startsWith('image/')) return setStatus('请选择图片文件。', true);
+      let bitmap;
+      try { bitmap = await createImageBitmap(file); }
+      catch { return setStatus('无法读取这张图片，请换用 PNG、JPG 或 WebP。', true); }
+      const url = URL.createObjectURL(file);
+      const previous = state[kind];
+      state[kind] = { file, bitmap, url, width: bitmap.width, height: bitmap.height };
+      const drop = $(kind + '-drop');
+      const image = document.createElement('img');
+      image.alt = kind === 'cover' ? '静态封面预览' : '打开后画面预览';
+      image.src = url;
+      image.style.objectFit = kind === 'reveal' ? state.fit : 'contain';
+      drop.replaceChildren(image);
+      $(kind + '-name').textContent = file.name;
+      $(kind + '-size').textContent = `${bitmap.width} × ${bitmap.height}`;
+      if (previous) { previous.bitmap.close(); URL.revokeObjectURL(previous.url); }
+      setStatus('');
+      updateUI();
+    }
+
+    function u32(n) {
+      const bytes = new Uint8Array(4);
+      new DataView(bytes.buffer).setUint32(0, n);
+      return bytes;
+    }
+
+    function chunk(type, payload = new Uint8Array()) {
+      const name = encoder.encode(type);
+      const result = new Uint8Array(payload.length + 12);
+      result.set(u32(payload.length), 0);
+      result.set(name, 4);
+      result.set(payload, 8);
+      let crc = 0xffffffff;
+      for (let i = 4; i < result.length - 4; i++) crc = crcTable[(crc ^ result[i]) & 255] ^ (crc >>> 8);
+      result.set(u32((crc ^ 0xffffffff) >>> 0), result.length - 4);
+      return result;
+    }
+
+    function frameControl(sequence, width, height, blend) {
+      const data = new Uint8Array(26);
+      const view = new DataView(data.buffer);
+      view.setUint32(0, sequence);
+      view.setUint32(4, width);
+      view.setUint32(8, height);
+      view.setUint16(20, 10);
+      view.setUint16(22, 100);
+      data[24] = 0;
+      data[25] = blend;
+      return data;
+    }
+
+    async function compress(pixels, width, height) {
+      const stride = width * 4;
+      const raw = new Uint8Array(height * (stride + 1));
+      for (let y = 0; y < height; y++) raw.set(pixels.subarray(y * stride, (y + 1) * stride), y * (stride + 1) + 1);
+      const stream = new CompressionStream('deflate');
+      const result = new Response(stream.readable).arrayBuffer();
+      const writer = stream.writable.getWriter();
+      await writer.write(raw);
+      await writer.close();
+      return new Uint8Array(await result);
+    }
+
+    async function encodeImage(image, width, height, fit, background) {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      if (background) { context.fillStyle = background; context.fillRect(0, 0, width, height); }
+      drawFitted(context, image, width, height, fit);
+      const pixels = context.getImageData(0, 0, width, height).data;
+      return compress(pixels, width, height);
+    }
+
+    async function generate() {
+      if (!state.cover || !state.reveal || state.busy) return;
+      if (typeof CompressionStream === 'undefined') return setStatus('当前浏览器不支持生成，请使用新版 Chrome 或 Edge。', true);
+      const { width, height } = state.cover;
+      if (width * height > 16000000) return setStatus('封面超过 1600 万像素，请先缩小图片。', true);
+      state.busy = true;
+      updateUI();
+      setStatus('正在处理静态封面…');
+      try {
+        const coverData = await encodeImage(state.cover, width, height, 'contain', null);
+        setStatus('正在处理打开后画面…');
+        const revealData = await encodeImage(state.reveal, width, height, state.fit, state.fit === 'contain' ? state.background : null);
+        const holdData = await compress(Uint8Array.of(0, 0, 0, 0), 1, 1);
+        const ihdr = new Uint8Array(13);
+        const view = new DataView(ihdr.buffer);
+        view.setUint32(0, width);
+        view.setUint32(4, height);
+        ihdr[8] = 8;
+        ihdr[9] = 6;
+        const animation = new Uint8Array(8);
+        new DataView(animation.buffer).setUint32(0, 2);
+        const text = encoder.encode('ChatBarApngDisguise\0' + '1;STATIC;1');
+        const frameData = (sequence, data) => {
+          const payload = new Uint8Array(data.length + 4);
+          payload.set(u32(sequence));
+          payload.set(data, 4);
+          return chunk('fdAT', payload);
+        };
+        const blob = new Blob([
+          signature, chunk('IHDR', ihdr), chunk('acTL', animation), chunk('tEXt', text),
+          chunk('IDAT', coverData),
+          chunk('fcTL', frameControl(0, width, height, 0)), frameData(1, revealData),
+          chunk('fcTL', frameControl(2, 1, 1, 1)), frameData(3, holdData), chunk('IEND')
+        ], { type: 'image/png' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.href = url;
+        link.download = state.cover.file.name.replace(/\.[^.]+$/, '') + '-双面.png';
+        document.body.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        setStatus(`已生成 ${link.download} · ${(blob.size / 1048576).toFixed(2)} MB`);
+      } catch (error) {
+        console.error(error);
+        setStatus('生成失败。请检查图片文件，或尝试缩小封面后重试。', true);
+      } finally {
+        state.busy = false;
+        updateUI();
+      }
+    }
+
+    for (const kind of ['cover', 'reveal']) {
+      const input = $(kind + '-input');
+      const drop = $(kind + '-drop');
+      document.querySelector(`[data-pick="${kind}"]`).addEventListener('click', () => input.click());
+      input.addEventListener('change', () => { choose(input.files[0], kind); input.value = ''; });
+      drop.addEventListener('click', () => input.click());
+      drop.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); input.click(); } });
+      drop.addEventListener('dragover', event => { event.preventDefault(); drop.classList.add('dragging'); });
+      drop.addEventListener('dragleave', () => drop.classList.remove('dragging'));
+      drop.addEventListener('drop', event => { event.preventDefault(); drop.classList.remove('dragging'); choose(event.dataTransfer.files[0], kind); });
+    }
+    document.querySelectorAll('[data-fit]').forEach(button => button.addEventListener('click', () => {
+      state.fit = button.dataset.fit;
+      document.querySelectorAll('[data-fit]').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+      updateUI();
+    }));
+    $('background').addEventListener('input', event => {
+      state.background = event.target.value;
+      $('color-value').textContent = state.background.toUpperCase();
+      updateUI();
+    });
+    $('generate').addEventListener('click', generate);
+  </script>
+</body>
+</html>
