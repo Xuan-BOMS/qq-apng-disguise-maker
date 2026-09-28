@@ -56,6 +56,26 @@
     .action:disabled { cursor: not-allowed; opacity: .45; }
     .status { margin-top: 15px; min-height: 21px; color: #0a7568; font-size: 13px; }
     .status.error { color: #c24335; }
+    .section { margin-top: 34px; padding-top: 25px; border-top: 1px solid #cbd3d0; }
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+    .section-head h2 { font-size: 20px; }
+    .section-head p { margin: 5px 0 0; color: #697779; font-size: 13px; }
+    .secondary { padding: 10px 14px; border: 1px solid #aab9b4; border-radius: 4px; background: #fff; color: #1c3734; font-size: 13px; font-weight: 700; }
+    .secondary:hover:not(:disabled) { border-color: #0a7568; color: #0a7568; }
+    .secondary:disabled { opacity: .45; cursor: not-allowed; }
+    .preview-box { position: relative; width: min(100%, 460px); height: 320px; border: 1px solid #d5ddda; border-radius: 5px; background: #fff; overflow: hidden; }
+    .preview-box img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; }
+    .extract-drop { display: flex; align-items: center; justify-content: center; min-height: 112px; padding: 18px; border: 1px dashed #b7c6c0; border-radius: 5px; background: #f7f9f8; color: #536365; text-align: center; cursor: pointer; }
+    .extract-drop:hover, .extract-drop.dragging, .extract-drop:focus-visible { border-color: #0a897a; background: #eff8f5; outline: none; }
+    .extract-drop strong { display: block; color: #263233; font-size: 14px; }
+    .extract-drop span { display: block; margin-top: 6px; font-size: 12px; }
+    .frames { display: grid; grid-template-columns: repeat(auto-fill, minmax(205px, 1fr)); gap: 14px; margin-top: 18px; }
+    .frame { min-width: 0; padding: 12px; border: 1px solid #d5ddda; border-radius: 5px; background: #fff; }
+    .frame img { display: block; width: 100%; height: 190px; object-fit: contain; background: #f7f9f8; }
+    .frame-title { display: flex; justify-content: space-between; gap: 8px; margin: 11px 0; font-size: 13px; }
+    .frame-title span { color: #697779; }
+    .frame .secondary { width: 100%; }
+    [hidden] { display: none !important; }
     input[type="file"] { display: none; }
     @media (max-width: 700px) {
       .app { padding: 20px 16px 36px; }
@@ -67,6 +87,8 @@
       .settings { gap: 16px; padding: 20px 0; }
       .output { align-items: stretch; flex-direction: column; gap: 15px; }
       .action { width: 100%; }
+      .section-head { align-items: flex-start; flex-direction: column; }
+      .preview-box { height: 240px; }
     }
   </style>
 </head>
@@ -101,14 +123,25 @@
 
     <div class="output">
       <div class="output-info"><strong id="output-size">等待选择图片</strong><span id="output-note">输出尺寸采用静态封面的尺寸</span></div>
-      <button class="action" id="generate" type="button" disabled>生成并下载 PNG</button>
+      <button class="action" id="generate" type="button" disabled>生成 PNG</button>
     </div>
     <div class="status" id="status" role="status" aria-live="polite"></div>
+    <section class="section" id="result" hidden aria-labelledby="result-title">
+      <div class="section-head"><div><h2 id="result-title">成品预览</h2><p>这里显示未点开原图时看到的默认画面。</p></div><button class="secondary" id="download-result" type="button">下载完整 PNG</button></div>
+      <div class="preview-box"><img id="result-cover" alt="成品默认显示画面"></div>
+    </section>
+    <section class="section" aria-labelledby="extract-title">
+      <div class="section-head"><div><h2 id="extract-title">拆分已有 APNG</h2><p>提取静态封面和各个不同的动画画面，分别保存为 PNG。</p></div><button class="secondary" id="pick-apng" type="button">选择 APNG 文件</button></div>
+      <div class="extract-drop" id="extract-drop" role="button" tabindex="0" aria-label="选择要拆分的 APNG"><div><strong>选择或拖入 APNG 文件</strong><span>图片仅在本地浏览器中处理</span></div></div>
+      <div class="status" id="extract-status" role="status" aria-live="polite"></div>
+      <div class="frames" id="frames"></div>
+    </section>
     <input id="cover-input" type="file" accept="image/*">
     <input id="reveal-input" type="file" accept="image/*">
+    <input id="apng-input" type="file" accept=".png,image/png">
   </main>
   <script>
-    const state = { cover: null, reveal: null, fit: 'contain', background: '#ffffff', busy: false };
+    const state = { cover: null, reveal: null, fit: 'contain', background: '#ffffff', busy: false, extracting: false, result: null, extractedUrls: [] };
     const $ = id => document.getElementById(id);
     const encoder = new TextEncoder();
     const signature = Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10);
@@ -121,6 +154,20 @@
     function setStatus(message, error = false) {
       $('status').textContent = message;
       $('status').classList.toggle('error', error);
+    }
+
+    function setExtractStatus(message, error = false) {
+      $('extract-status').textContent = message;
+      $('extract-status').classList.toggle('error', error);
+    }
+
+    function download(url, name) {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = name;
+      document.body.append(link);
+      link.click();
+      link.remove();
     }
 
     function updateUI() {
@@ -243,6 +290,7 @@
       state.busy = true;
       updateUI();
       setStatus('正在处理静态封面…');
+      let url, coverUrl;
       try {
         const coverData = await encodeImage(state.cover, width, height, 'contain', null);
         setStatus('正在处理打开后画面…');
@@ -269,21 +317,152 @@
           chunk('fcTL', frameControl(0, width, height, 0)), frameData(1, revealData),
           chunk('fcTL', frameControl(2, 1, 1, 1)), frameData(3, holdData), chunk('IEND')
         ], { type: 'image/png' });
-        const link = document.createElement('a');
-        const url = URL.createObjectURL(blob);
-        link.href = url;
-        link.download = state.cover.file.name.replace(/\.[^.]+$/, '') + '-双面.png';
-        document.body.append(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
-        setStatus(`已生成 ${link.download} · ${(blob.size / 1048576).toFixed(2)} MB`);
+        url = URL.createObjectURL(blob);
+        const name = state.cover.file.name.replace(/\.[^.]+$/, '') + '-双面.png';
+        const parsed = readPng(new Uint8Array(await blob.arrayBuffer()));
+        coverUrl = URL.createObjectURL(stillPng(parsed, width, height, parsed.coverData));
+        if (state.result) state.result.urls.forEach(oldUrl => URL.revokeObjectURL(oldUrl));
+        state.result = { url, name, urls: [url, coverUrl] };
+        $('result-cover').src = coverUrl;
+        $('result').hidden = false;
+        $('result').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        setStatus(`已生成 ${name} · ${(blob.size / 1048576).toFixed(2)} MB`);
       } catch (error) {
+        if (url) URL.revokeObjectURL(url);
+        if (coverUrl) URL.revokeObjectURL(coverUrl);
         console.error(error);
         setStatus('生成失败。请检查图片文件，或尝试缩小封面后重试。', true);
       } finally {
         state.busy = false;
         updateUI();
+      }
+    }
+
+    function readPng(bytes) {
+      if (!signature.every((value, index) => bytes[index] === value)) throw new Error('这不是 PNG 文件。');
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const shared = [];
+      const coverData = [];
+      const frames = [];
+      let header, current, animated = false, seenImage = false;
+      for (let offset = 8; offset + 12 <= bytes.length;) {
+        const length = view.getUint32(offset);
+        if (length > bytes.length - offset - 12) throw new Error('PNG 文件不完整。');
+        const type = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8));
+        const data = bytes.subarray(offset + 8, offset + 8 + length);
+        offset += length + 12;
+        if (type === 'IHDR') header = data.slice();
+        else if (type === 'acTL') animated = true;
+        else if (type === 'fcTL') {
+          if (length !== 26) throw new Error('APNG 帧信息无效。');
+          if (current) frames.push(current);
+          current = { width: new DataView(data.buffer, data.byteOffset).getUint32(4), height: new DataView(data.buffer, data.byteOffset).getUint32(8), x: new DataView(data.buffer, data.byteOffset).getUint32(12), y: new DataView(data.buffer, data.byteOffset).getUint32(16), dispose: data[24], blend: data[25], data: [] };
+        } else if (type === 'IDAT') {
+          seenImage = true;
+          coverData.push(data);
+          if (current) current.data.push(data);
+        } else if (type === 'fdAT') {
+          if (!current || length < 4) throw new Error('APNG 帧数据无效。');
+          current.data.push(data.subarray(4));
+        } else if (!seenImage && ['PLTE', 'tRNS', 'gAMA', 'cHRM', 'sRGB', 'iCCP', 'sBIT'].includes(type)) shared.push(chunk(type, data));
+        if (type === 'IEND') break;
+      }
+      if (current) frames.push(current);
+      if (!header || !coverData.length || !animated || !frames.length) throw new Error('文件中没有可拆分的 APNG 动画。');
+      const size = new DataView(header.buffer);
+      const width = size.getUint32(0), height = size.getUint32(4);
+      if (!width || !height || width * height > 16000000 || frames.length > 120) throw new Error('图片尺寸或帧数超出支持范围。');
+      for (const frame of frames) {
+        if (!frame.width || !frame.height || frame.x + frame.width > width || frame.y + frame.height > height || !frame.data.length || frame.dispose > 2 || frame.blend > 1) throw new Error('APNG 帧范围或参数无效。');
+      }
+      return { header, shared, coverData, frames, width, height };
+    }
+
+    function stillPng(parsed, width, height, data) {
+      const header = parsed.header.slice();
+      const view = new DataView(header.buffer);
+      view.setUint32(0, width);
+      view.setUint32(4, height);
+      return new Blob([signature, chunk('IHDR', header), ...parsed.shared, ...data.map(part => chunk('IDAT', part)), chunk('IEND')], { type: 'image/png' });
+    }
+
+    function canvasPng(canvas) {
+      return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('浏览器无法导出 PNG。')), 'image/png'));
+    }
+
+    async function splitApng(file) {
+      const parsed = readPng(new Uint8Array(await file.arrayBuffer()));
+      const cover = { url: URL.createObjectURL(stillPng(parsed, parsed.width, parsed.height, parsed.coverData)) };
+      const canvas = document.createElement('canvas');
+      canvas.width = parsed.width;
+      canvas.height = parsed.height;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      const frames = [];
+      let previousPixels = null;
+      try {
+        for (let index = 0; index < parsed.frames.length; index++) {
+          const frame = parsed.frames[index];
+          const previous = frame.dispose === 2 ? context.getImageData(frame.x, frame.y, frame.width, frame.height) : null;
+          const bitmap = await createImageBitmap(stillPng(parsed, frame.width, frame.height, frame.data));
+          if (frame.blend === 0) context.clearRect(frame.x, frame.y, frame.width, frame.height);
+          context.drawImage(bitmap, frame.x, frame.y);
+          bitmap.close();
+          const pixels = context.getImageData(0, 0, parsed.width, parsed.height).data;
+          if (!previousPixels || !pixels.every((value, position) => value === previousPixels[position])) {
+            frames.push({ index: index + 1, url: URL.createObjectURL(await canvasPng(canvas)) });
+            previousPixels = pixels;
+          }
+          if (frame.dispose === 1) context.clearRect(frame.x, frame.y, frame.width, frame.height);
+          if (previous) context.putImageData(previous, frame.x, frame.y);
+        }
+        return { cover, frames, width: parsed.width, height: parsed.height };
+      } catch (error) {
+        URL.revokeObjectURL(cover.url);
+        frames.forEach(frame => URL.revokeObjectURL(frame.url));
+        throw error;
+      }
+    }
+
+    async function extract(file) {
+      if (!file || state.extracting) return;
+      state.extracting = true;
+      $('pick-apng').disabled = true;
+      $('frames').replaceChildren();
+      state.extractedUrls.forEach(url => URL.revokeObjectURL(url));
+      state.extractedUrls = [];
+      setExtractStatus('正在拆分 APNG…');
+      try {
+        const result = await splitApng(file);
+        const stem = file.name.replace(/\.[^.]+$/, '');
+        const items = [{ title: '静态封面', suffix: '封面', url: result.cover.url }, ...result.frames.map(frame => ({ title: `动画画面 ${frame.index}`, suffix: `画面-${frame.index}`, url: frame.url }))];
+        state.extractedUrls = items.map(item => item.url);
+        for (const item of items) {
+          const card = document.createElement('article');
+          card.className = 'frame';
+          const image = document.createElement('img');
+          image.src = item.url;
+          image.alt = item.title;
+          const title = document.createElement('div');
+          title.className = 'frame-title';
+          const strong = document.createElement('strong');
+          strong.textContent = item.title;
+          const size = document.createElement('span');
+          size.textContent = `${result.width} × ${result.height}`;
+          title.append(strong, size);
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'secondary';
+          button.textContent = '下载 PNG';
+          button.addEventListener('click', () => download(item.url, `${stem}-${item.suffix}.png`));
+          card.append(image, title, button);
+          $('frames').append(card);
+        }
+        setExtractStatus(`已拆分 ${file.name}：静态封面 + ${result.frames.length} 个不同的动画画面。`);
+      } catch (error) {
+        setExtractStatus(error.message || '拆分失败，请检查 APNG 文件。', true);
+      } finally {
+        state.extracting = false;
+        $('pick-apng').disabled = false;
       }
     }
 
@@ -309,6 +488,14 @@
       updateUI();
     });
     $('generate').addEventListener('click', generate);
+    $('download-result').addEventListener('click', () => { if (state.result) download(state.result.url, state.result.name); });
+    $('pick-apng').addEventListener('click', () => $('apng-input').click());
+    $('apng-input').addEventListener('change', event => { extract(event.target.files[0]); event.target.value = ''; });
+    $('extract-drop').addEventListener('click', () => $('apng-input').click());
+    $('extract-drop').addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); $('apng-input').click(); } });
+    $('extract-drop').addEventListener('dragover', event => { event.preventDefault(); $('extract-drop').classList.add('dragging'); });
+    $('extract-drop').addEventListener('dragleave', () => $('extract-drop').classList.remove('dragging'));
+    $('extract-drop').addEventListener('drop', event => { event.preventDefault(); $('extract-drop').classList.remove('dragging'); extract(event.dataTransfer.files[0]); });
   </script>
 </body>
 </html>
